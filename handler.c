@@ -88,7 +88,7 @@ static void terminate(int signo) {
         ;
     }
 
-    _exit(0);
+    _exit(EXIT_SUCCESS);
 }
 
 void spawn_service_tasks(int server_fd) {
