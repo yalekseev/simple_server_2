@@ -20,6 +20,8 @@ enum { NUM_PROCS = 12 };
 
 static pid_t procs[NUM_PROCS];
 
+extern volatile sig_atomic_t terminate;
+
 static void handle_single_request(int socket_fd) {
     /* set send/receive timeouts */
     struct timeval tv;
@@ -78,7 +80,7 @@ static void handle_requests(int server_fd) {
     }
 }
 
-static void terminate(int signo) {
+static void sig_term_handler(int signo) {
     int i;
     for (i = 0; i < NUM_PROCS; ++i) {
         kill(procs[i], SIGTERM);
@@ -88,12 +90,27 @@ static void terminate(int signo) {
         ;
     }
 
-    _exit(EXIT_SUCCESS);
+    terminate = 1;
 }
 
 void spawn_service_tasks(int server_fd) {
+    // Spawn processes prior to registering signal handlers
+    int i;
+    for (i = 0; i < NUM_PROCS; ++i) {
+        pid_t pid;
+        pid = fork();
+
+        if (pid == 0) {
+            handle_requests(server_fd);
+        } else if (pid > 0) {
+            procs[i] = pid;
+        } else {
+            sig_term_handler(0);
+        }
+    }
+
     struct sigaction sa;
-    sa.sa_handler = &terminate;
+    sa.sa_handler = &sig_term_handler;
     sa.sa_flags = SA_RESTART;
     sigemptyset(&sa.sa_mask);
 
@@ -105,19 +122,5 @@ void spawn_service_tasks(int server_fd) {
     if (sigaction(SIGTERM, &sa, NULL) == -1) {
         syslog(LOG_EMERG, "sigaction %s", strerror(errno));
         exit(EXIT_FAILURE);
-    }
-
-    int i;
-    for (i = 0; i < NUM_PROCS; ++i) {
-        pid_t pid;
-        pid = fork();
-
-        if (pid == 0) {
-            handle_requests(server_fd);
-        } else if (pid > 0) {
-            procs[i] = pid;
-        } else {
-            terminate();
-        }
     }
 }

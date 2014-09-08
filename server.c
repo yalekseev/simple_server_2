@@ -14,6 +14,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+volatile sig_atomic_t terminate;
+
 void sig_chld(int signo) {
     pid_t pid;
     int stat;
@@ -107,7 +109,7 @@ int main() {
 
     spawn_service_tasks(server_fd);
 
-    while (1) {
+    while (!terminate) {
         pause();
     }
 
