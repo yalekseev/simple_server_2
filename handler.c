@@ -21,19 +21,16 @@ static void handle_single_request(int socket_fd) {
     tv.tv_sec = 5;
     tv.tv_usec = 0;
     if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == -1) {
-        close(socket_fd);
         return;
     }
 
     if (setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
-        close(socket_fd);
         return;
     }
 
     char file_name[MAX_FILE_NAME + 1];
     ssize_t bytes_read = readn(socket_fd, file_name, MAX_FILE_NAME);
     if (bytes_read <= 0) {
-        close(socket_fd);
         return;
     }
 
@@ -41,7 +38,9 @@ static void handle_single_request(int socket_fd) {
 
     int file_fd = open(file_name, O_RDONLY);
     if (-1 == file_fd) {
-        close(socket_fd);
+        if (errno != ENOENT) {
+            syslog(LOG_ERR, "open %s", strerror(errno));
+        }
         return;
     }
 
