@@ -4,16 +4,21 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <unistd.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/sendfile.h>
 
-enum { NUM_TASKS = 12 };
+enum { NUM_PROCS = 12 };
+
+static pid_t procs[NUM_PROCS];
 
 static void handle_single_request(int socket_fd) {
     /* set send/receive timeouts */
@@ -73,15 +78,46 @@ static void handle_requests(int server_fd) {
     }
 }
 
-void spawn_service_tasks(int server_fd) {
+static void terminate(int signo) {
     int i;
-    for (i = 0; i < NUM_TASKS; ++i) {
+    for (i = 0; i < NUM_PROCS; ++i) {
+        kill(procs[i], SIGTERM);
+    }
+
+    while (wait(NULL) > 0) {
+        ;
+    }
+
+    _exit(0);
+}
+
+void spawn_service_tasks(int server_fd) {
+    struct sigaction sa;
+    sa.sa_handler = &terminate;
+    sa.sa_flags = SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        syslog(LOG_EMERG, "sigaction %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        syslog(LOG_EMERG, "sigaction %s", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    int i;
+    for (i = 0; i < NUM_PROCS; ++i) {
         pid_t pid;
         pid = fork();
-        assert(pid != -1);
 
-        if (pid > 0) {
+        if (pid == 0) {
             handle_requests(server_fd);
+        } else if (pid > 0) {
+            procs[i] = pid;
+        } else {
+            terminate();
         }
     }
 }
